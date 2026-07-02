@@ -1,0 +1,189 @@
+{
+  "$schema": "https://schema.management.azure.com/schemas/2019-04-01/deploymentTemplate.json#",
+  "contentVersion": "1.0.0.0",
+  "parameters": {
+    "containerGroupName": {
+      "type": "string",
+      "metadata": {
+        "description": "Name for the Azure Container Instance resource. Must be unique within the resource group."
+      }
+    },
+    "location": {
+      "type": "string",
+      "defaultValue": "[resourceGroup().location]",
+      "metadata": {
+        "description": "Azure region for all resources. Defaults to the resource group location."
+      }
+    },
+    "storageAccountName": {
+      "type": "string",
+      "metadata": {
+        "description": "Globally unique storage account name (3–24 characters, lowercase letters and numbers only). Example: csagentcontoso001"
+      }
+    },
+    "fileShareName": {
+      "type": "string",
+      "defaultValue": "cloudspector-data",
+      "metadata": {
+        "description": "Azure Files share name. The agent mounts this share at /data for persistent storage of the database and provider packages."
+      }
+    },
+    "agentImageName": {
+      "type": "string",
+      "defaultValue": "7nodeit.azurecr.io/cloudspector.agent:latest",
+      "metadata": {
+        "description": "Full container image reference. Change only if instructed by 7NodeIT support."
+      }
+    },
+    "acrTokenUsername": {
+      "type": "string",
+      "metadata": {
+        "description": "ACR repository-scoped token name provided by 7NodeIT. This is a token name, not a password — it is not secret."
+      }
+    },
+    "acrTokenPassword": {
+      "type": "securestring",
+      "metadata": {
+        "description": "ACR repository-scoped token password provided by 7NodeIT. Store this in Azure Key Vault and reference it here."
+      }
+    },
+    "authPepper": {
+      "type": "securestring",
+      "metadata": {
+        "description": "Secret string used for PBKDF2-SHA512 password hashing (Auth__Pepper). Generate a random string of at least 32 characters and store it in Azure Key Vault. IMPORTANT: losing this value means existing passwords can no longer be verified."
+      }
+    },
+    "cloudSpectorApiBaseUrl": {
+      "type": "string",
+      "defaultValue": "https://cloudspectorapi.redcoast-8186da07.westeurope.azurecontainerapps.io",
+      "metadata": {
+        "description": "CloudSpector backend API URL. Used by the agent when running in Online connectivity mode. Do not change unless instructed by 7NodeIT."
+      }
+    }
+  },
+  "resources": [
+    {
+      "type": "Microsoft.Storage/storageAccounts",
+      "apiVersion": "2023-01-01",
+      "name": "[parameters('storageAccountName')]",
+      "location": "[parameters('location')]",
+      "sku": {
+        "name": "Standard_LRS"
+      },
+      "kind": "StorageV2",
+      "properties": {
+        "supportsHttpsTrafficOnly": true,
+        "minimumTlsVersion": "TLS1_2",
+        "allowBlobPublicAccess": false
+      }
+    },
+    {
+      "type": "Microsoft.Storage/storageAccounts/fileServices/shares",
+      "apiVersion": "2023-01-01",
+      "name": "[concat(parameters('storageAccountName'), '/default/', parameters('fileShareName'))]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName'))]"
+      ],
+      "properties": {
+        "shareQuota": 32
+      }
+    },
+    {
+      "type": "Microsoft.ContainerInstance/containerGroups",
+      "apiVersion": "2023-05-01",
+      "name": "[parameters('containerGroupName')]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', parameters('storageAccountName'), 'default', parameters('fileShareName'))]"
+      ],
+      "properties": {
+        "containers": [
+          {
+            "name": "cloudspector-agent",
+            "properties": {
+              "image": "[parameters('agentImageName')]",
+              "resources": {
+                "requests": {
+                  "cpu": 1,
+                  "memoryInGB": 1.5
+                }
+              },
+              "ports": [
+                {
+                  "port": 8080,
+                  "protocol": "TCP"
+                }
+              ],
+              "environmentVariables": [
+                {
+                  "name": "ASPNETCORE_ENVIRONMENT",
+                  "value": "Production"
+                },
+                {
+                  "name": "PersistentStorage__Path",
+                  "value": "/data"
+                },
+                {
+                  "name": "CLOUDSPECTOR_DATA_PATH",
+                  "value": "/data"
+                },
+                {
+                  "name": "Auth__Pepper",
+                  "secureValue": "[parameters('authPepper')]"
+                },
+                {
+                  "name": "CloudSpectorApi__BaseUrl",
+                  "value": "[parameters('cloudSpectorApiBaseUrl')]"
+                }
+              ],
+              "volumeMounts": [
+                {
+                  "name": "cloudspector-data",
+                  "mountPath": "/data"
+                }
+              ]
+            }
+          }
+        ],
+        "imageRegistryCredentials": [
+          {
+            "server": "7nodeit.azurecr.io",
+            "username": "[parameters('acrTokenUsername')]",
+            "password": "[parameters('acrTokenPassword')]"
+          }
+        ],
+        "osType": "Linux",
+        "restartPolicy": "Always",
+        "ipAddress": {
+          "type": "Public",
+          "ports": [
+            {
+              "port": 8080,
+              "protocol": "TCP"
+            }
+          ]
+        },
+        "volumes": [
+          {
+            "name": "cloudspector-data",
+            "azureFile": {
+              "shareName": "[parameters('fileShareName')]",
+              "storageAccountName": "[parameters('storageAccountName')]",
+              "storageAccountKey": "[listKeys(resourceId('Microsoft.Storage/storageAccounts', parameters('storageAccountName')), '2023-01-01').keys[0].value]"
+            }
+          }
+        ]
+      }
+    }
+  ],
+  "outputs": {
+    "containerPublicIp": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))).ipAddress.ip]"
+    },
+    "agentUrl": {
+      "type": "string",
+      "value": "[concat('http://', reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))).ipAddress.ip, ':8080')]"
+    }
+  }
+}
