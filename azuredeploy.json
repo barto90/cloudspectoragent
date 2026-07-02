@@ -25,7 +25,7 @@
       "type": "string",
       "defaultValue": "cloudspector-data",
       "metadata": {
-        "description": "Azure Files share name. The agent mounts this share at /data for persistent storage of the database and provider packages."
+        "description": "Azure Files share name. The agent mounts this share at /data for persistent storage of provider packages (not the database — see sqlServerName)."
       }
     },
     "agentImageName": {
@@ -58,6 +58,31 @@
       "defaultValue": "https://cloudspectorapi.redcoast-8186da07.westeurope.azurecontainerapps.io",
       "metadata": {
         "description": "CloudSpector backend API URL. Used by the agent when running in Online connectivity mode. Do not change unless instructed by 7NodeIT."
+      }
+    },
+    "sqlServerName": {
+      "type": "string",
+      "metadata": {
+        "description": "Globally unique Azure SQL logical server name (lowercase letters, numbers, hyphens, 1-63 characters). Example: csagent-sql-contoso001"
+      }
+    },
+    "sqlDatabaseName": {
+      "type": "string",
+      "defaultValue": "cloudspector-agent-db",
+      "metadata": {
+        "description": "Name of the Azure SQL Database that stores the agent's local data (baselines, design decisions, users, feed items, check metadata)."
+      }
+    },
+    "sqlDatabaseSkuName": {
+      "type": "string",
+      "defaultValue": "Basic",
+      "allowedValues": [
+        "Basic",
+        "S0",
+        "S1"
+      ],
+      "metadata": {
+        "description": "Azure SQL Database pricing tier. Basic (~€4-5/month) is sufficient for the agent's lightweight local database; upgrade to S0/S1 only if you experience performance issues."
       }
     }
   },
@@ -93,6 +118,9 @@
       "apiVersion": "2023-05-01",
       "name": "[parameters('containerGroupName')]",
       "location": "[parameters('location')]",
+      "identity": {
+        "type": "SystemAssigned"
+      },
       "dependsOn": [
         "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', parameters('storageAccountName'), 'default', parameters('fileShareName'))]"
       ],
@@ -134,6 +162,10 @@
                 {
                   "name": "CloudSpectorApi__BaseUrl",
                   "value": "[parameters('cloudSpectorApiBaseUrl')]"
+                },
+                {
+                  "name": "ConnectionStrings__CloudSpector",
+                  "value": "[concat('Server=tcp:', parameters('sqlServerName'), '.database.windows.net,1433;Initial Catalog=', parameters('sqlDatabaseName'), ';Authentication=Active Directory Managed Identity;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;')]"
                 }
               ],
               "volumeMounts": [
@@ -174,6 +206,54 @@
           }
         ]
       }
+    },
+    {
+      "type": "Microsoft.Sql/servers",
+      "apiVersion": "2022-05-01-preview",
+      "name": "[parameters('sqlServerName')]",
+      "location": "[parameters('location')]",
+      "comments": "No SQL login/password is created. Azure AD-only authentication with the Container Group's system-assigned managed identity as the sole server administrator (see ADR-043). This resource depends on the Container Group purely to read its identity.principalId/tenantId at deploy time — the container itself does not wait for the SQL Server to exist before starting (its connection string is derived from parameters, not from a runtime reference), so it may restart a few times while the database finishes provisioning. This is expected; restartPolicy is 'Always'.",
+      "dependsOn": [
+        "[resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))]"
+      ],
+      "properties": {
+        "version": "12.0",
+        "administrators": {
+          "administratorType": "ActiveDirectory",
+          "principalType": "Application",
+          "login": "[parameters('containerGroupName')]",
+          "sid": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName')), '2023-05-01', 'Full').identity.principalId]",
+          "tenantId": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName')), '2023-05-01', 'Full').identity.tenantId]",
+          "azureADOnlyAuthentication": true
+        }
+      }
+    },
+    {
+      "type": "Microsoft.Sql/servers/firewallRules",
+      "apiVersion": "2021-11-01",
+      "name": "[concat(parameters('sqlServerName'), '/AllowAzureServices')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
+      ],
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress": "0.0.0.0"
+      }
+    },
+    {
+      "type": "Microsoft.Sql/servers/databases",
+      "apiVersion": "2021-11-01",
+      "name": "[concat(parameters('sqlServerName'), '/', parameters('sqlDatabaseName'))]",
+      "location": "[parameters('location')]",
+      "dependsOn": [
+        "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
+      ],
+      "sku": {
+        "name": "[parameters('sqlDatabaseSkuName')]"
+      },
+      "properties": {
+        "collation": "SQL_Latin1_General_CP1_CI_AS"
+      }
     }
   ],
   "outputs": {
@@ -184,6 +264,14 @@
     "agentUrl": {
       "type": "string",
       "value": "[concat('http://', reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))).ipAddress.ip, ':8080')]"
+    },
+    "sqlServerFqdn": {
+      "type": "string",
+      "value": "[concat(parameters('sqlServerName'), '.database.windows.net')]"
+    },
+    "sqlDatabaseName": {
+      "type": "string",
+      "value": "[parameters('sqlDatabaseName')]"
     }
   }
 }

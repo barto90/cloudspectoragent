@@ -1,6 +1,6 @@
 # CloudSpector Agent — Azure Container Instance Deployment
 
-Deploy the CloudSpector Agent to your own Azure subscription using Azure Container Instances with persistent Azure Files storage.
+Deploy the CloudSpector Agent to your own Azure subscription using Azure Container Instances with persistent Azure Files storage and a dedicated Azure SQL Database.
 
 > **Prerequisite:** You must receive an ACR token (username + password) from 7NodeIT before you can deploy. Contact support@7nodeit.com to request one.
 
@@ -8,17 +8,21 @@ Deploy the CloudSpector Agent to your own Azure subscription using Azure Contain
 
 ## What Gets Deployed
 
-One ARM template deploys three resources into your chosen resource group:
+One ARM template deploys these resources into your chosen resource group:
 
 | Resource | Type | Purpose |
 |---|---|---|
 | Storage Account | Standard_LRS | Hosts the Azure Files share |
-| File Share (`cloudspector-data`) | Azure Files | Persistent storage for database and provider packages |
-| Container Group | Azure Container Instance | Runs the CloudSpector Agent on port 8080 |
+| File Share (`cloudspector-data`) | Azure Files | Persistent storage for provider packages |
+| Container Group | Azure Container Instance | Runs the CloudSpector Agent on port 8080, with a system-assigned managed identity |
+| SQL Server + Database | Microsoft.Sql (Basic tier) | Agent's local database (baselines, design decisions, users, feed items, check metadata) |
 
-Estimated monthly cost (West Europe): **€31–46/month**
+Estimated monthly cost (West Europe): **€36–51/month**
 - ACI (1 vCPU / 1.5 GB, always running): ~€30–44/month
 - Storage (Standard_LRS, 32 GB share): ~€1–2/month
+- Azure SQL Database (Basic tier): ~€5/month
+
+**No SQL password anywhere.** The SQL Server uses Azure AD-only authentication — the Container Group's system-assigned managed identity is set as the server's sole administrator during deployment. There is no SQL login, no password to store in Key Vault, and nothing to rotate. See ADR-043 in the CloudSpector repo for the reasoning.
 
 ---
 
@@ -32,7 +36,7 @@ You need an active Azure subscription. If you don't have one, create one at [por
 
 ### 2. Resource Group
 
-Create or choose a resource group for the deployment. All three resources will be deployed into this group.
+Create or choose a resource group for the deployment. All resources will be deployed into this group.
 
 ### 3. Azure Key Vault
 
@@ -53,6 +57,8 @@ Create exactly these two secrets in your Key Vault:
 | `cloudspector-auth-pepper` | A random string of at least 32 characters (generate one at [random.org](https://www.random.org/strings/)) |
 
 > **Important:** Store the `authPepper` value somewhere safe. If it is lost, existing user passwords cannot be verified and all agent accounts must be recreated.
+
+**No SQL Key Vault secret is needed.** Database access is granted automatically via the Container Group's managed identity — there is nothing to create for it.
 
 ---
 
@@ -87,13 +93,16 @@ You will see a form with the following fields:
 | **Acr Token Password** | Click the Key Vault icon → select your vault → select `cloudspector-acr-token-password` |
 | **Auth Pepper** | Click the Key Vault icon → select your vault → select `cloudspector-auth-pepper` |
 | **Cloud Spector Api Base Url** | Leave as default |
+| **Sql Server Name** | A globally unique name, e.g. `csagent-sql-contoso001` |
+| **Sql Database Name** | Leave as `cloudspector-agent-db` unless you have a reason to change it |
+| **Sql Database Sku Name** | Leave as `Basic` unless you need more performance (S0/S1) |
 
 ### Step 4: Deploy
 
 1. Click **Review + Create**
 2. Wait for validation to pass (green tick)
 3. Click **Create**
-4. Deployment takes approximately 2 minutes
+4. Deployment takes approximately 2–3 minutes
 
 ### Step 5: Get the Agent URL
 
@@ -145,18 +154,33 @@ az deployment group create \
 | `acrTokenPassword` | securestring | — | ACR token password (from Key Vault) |
 | `authPepper` | securestring | — | Password hashing secret (from Key Vault, min 32 chars) |
 | `cloudSpectorApiBaseUrl` | string | Production URL | Backend API URL (do not change) |
+| `sqlServerName` | string | — | Globally unique Azure SQL logical server name (lowercase, numbers, hyphens) |
+| `sqlDatabaseName` | string | `cloudspector-agent-db` | Azure SQL Database name |
+| `sqlDatabaseSkuName` | string | `Basic` | Azure SQL Database pricing tier (`Basic`, `S0`, or `S1`) |
 
 ---
 
 ## Troubleshooting
 
-### Container is in a restart loop
+### Container repeatedly restarts right after deployment
+
+This is expected for the first 1–2 minutes: the Container Group starts before the SQL Server/Database finish provisioning (this is intentional — see the `comments` field on the `Microsoft.Sql/servers` resource in `azuredeploy.json`). The container's `restartPolicy` is `Always`, so it retries automatically until the database is reachable. Give it a couple of minutes before troubleshooting further.
+
+### Container is in a persistent restart loop (beyond a few minutes)
 
 Check the container logs in the Azure Portal: Container Instance → **Containers** → **Logs**.
 
 Common causes:
-- **Missing `CLOUDSPECTOR_SQL_CONNECTION`:** The SQLite migration must be complete in the deployed image. Contact 7NodeIT if you see `InvalidOperationException: No database connection string found`.
+- **Database connection failing:** Verify the `sqlServerName` / `sqlDatabaseName` parameters match what was actually deployed. The agent connects via `ConnectionStrings__CloudSpector`, which is built automatically from those parameters — you should never need to set it manually.
+- **Managed identity not recognized as SQL admin:** Confirm the Container Group has a system-assigned identity (Container Instance → **Identity** tab → should show "On"). If it's missing, the deployment likely failed partway through — redeploy.
 - **Wrong `Auth__Pepper`:** The env var name is case-sensitive — must be exactly `Auth__Pepper`.
+
+### Cannot connect to the SQL Database with SSMS / Azure Data Studio
+
+The SQL Server uses **Azure AD-only authentication** — SQL logins/passwords do not work here, by design (see ADR-043). To connect manually for troubleshooting:
+1. Azure Portal → your SQL Server → **Microsoft Entra ID** (formerly Azure AD)
+2. Add yourself (or a group you're in) as an additional Microsoft Entra admin
+3. Connect using "Microsoft Entra Account" / "Active Directory - Universal with MFA" authentication in SSMS/Azure Data Studio — not "SQL Server Authentication"
 
 ### Azure Files share fails to mount
 
@@ -193,4 +217,4 @@ To pull the latest image without changing any settings:
 1. Azure Portal → Container Instances → your container group
 2. Click **Restart**
 
-The container will pull `latest` from ACR on restart. Your data in `/data` (database, providers, license) is unaffected — it is stored in Azure Files, not in the container.
+The container will pull `latest` from ACR on restart. Your data in `/data` (provider packages, license) and in the Azure SQL Database (baselines, users, check metadata) is unaffected — neither is stored inside the container itself.

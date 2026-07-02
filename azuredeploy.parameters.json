@@ -38,6 +38,15 @@
     },
     "cloudSpectorApiBaseUrl": {
       "value": "https://cloudspectorapi.redcoast-8186da07.westeurope.azurecontainerapps.io"
+    },
+    "sqlServerName": {
+      "value": "csagent-sql-<unique-suffix>"
+    },
+    "sqlDatabaseName": {
+      "value": "cloudspector-agent-db"
+    },
+    "sqlDatabaseSkuName": {
+      "value": "Basic"
     }
   }
 }
