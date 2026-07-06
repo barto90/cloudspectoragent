@@ -177,7 +177,7 @@ This is a subscription-level restriction on the `Microsoft.Sql` resource provide
 
 ### Container repeatedly restarts right after deployment
 
-This is expected for the first 1–2 minutes: the Container Group starts before the SQL Server/Database finish provisioning (this is intentional — see the `comments` field on the `Microsoft.Sql/servers` resource in `azuredeploy.json`). The container's `restartPolicy` is `Always`, so it retries automatically until the database is reachable. Give it a couple of minutes before troubleshooting further.
+The Container Group only starts once the SQL Server and Database already exist (it waits on them via `dependsOn`), but it cannot also wait for its own firewall rule — that rule needs the container's IP address, which only exists once the container has started. So there's a brief window, typically under a minute, where the container is up but the firewall rule granting it access hasn't finished being created yet. The container's `restartPolicy` is `Always`, so it retries automatically until the rule takes effect. Give it a minute before troubleshooting further.
 
 ### Container is in a persistent restart loop (beyond a few minutes)
 

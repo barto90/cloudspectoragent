@@ -162,7 +162,8 @@
       },
       "dependsOn": [
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
-        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', parameters('storageAccountName'), 'default', parameters('fileShareName'))]"
+        "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', parameters('storageAccountName'), 'default', parameters('fileShareName'))]",
+        "[resourceId('Microsoft.Sql/servers/databases', parameters('sqlServerName'), parameters('sqlDatabaseName'))]"
       ],
       "properties": {
         "containers": [
@@ -252,7 +253,7 @@
       "apiVersion": "2022-05-01-preview",
       "name": "[parameters('sqlServerName')]",
       "location": "[parameters('sqlServerLocation')]",
-      "comments": "No SQL login/password is created. Azure AD-only authentication with a user-assigned managed identity as the sole server administrator (see ADR-043 and its amendment — system-assigned identities are not supported in this role). This resource depends only on the user-assigned identity, not on the Container Group, so it no longer needs to wait for the container to be created.",
+      "comments": "No SQL login/password is created. Azure AD-only authentication with a user-assigned managed identity as the sole server administrator (see ADR-043 and its amendment — system-assigned identities are not supported in this role). This resource depends only on the user-assigned identity, not on the Container Group — which is what lets the Container Group depend on this server (and its database) in turn, without a circular dependency, so the agent no longer starts before the database exists.",
       "dependsOn": [
         "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]"
       ],
