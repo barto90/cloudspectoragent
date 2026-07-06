@@ -39,6 +39,9 @@
     "sqlServerName": {
       "value": "csagent-sql-<unique-suffix>"
     },
+    "sqlServerLocation": {
+      "value": "westeurope"
+    },
     "sqlDatabaseName": {
       "value": "cloudspector-agent-db"
     },

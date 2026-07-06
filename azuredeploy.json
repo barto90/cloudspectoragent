@@ -59,6 +59,25 @@
         "description": "Globally unique Azure SQL logical server name (lowercase letters, numbers, hyphens, 1-63 characters). Example: csagent-sql-contoso001"
       }
     },
+    "sqlServerLocation": {
+      "type": "string",
+      "defaultValue": "westeurope",
+      "allowedValues": [
+        "westeurope",
+        "northeurope",
+        "swedencentral",
+        "francecentral",
+        "germanywestcentral",
+        "uksouth",
+        "eastus",
+        "eastus2",
+        "westus2",
+        "southeastasia"
+      ],
+      "metadata": {
+        "description": "Azure region for the SQL Server + Database. Deliberately separate from the resource group's region: some subscriptions are restricted from provisioning Azure SQL in certain regions (error 'ProvisioningDisabled'). If deployment fails with that error, pick a different region here — the Storage Account and Container Instance are unaffected and keep using the resource group's own region."
+      }
+    },
     "sqlDatabaseName": {
       "type": "string",
       "defaultValue": "cloudspector-agent-db",
@@ -207,7 +226,7 @@
       "type": "Microsoft.Sql/servers",
       "apiVersion": "2022-05-01-preview",
       "name": "[parameters('sqlServerName')]",
-      "location": "[variables('location')]",
+      "location": "[parameters('sqlServerLocation')]",
       "comments": "No SQL login/password is created. Azure AD-only authentication with the Container Group's system-assigned managed identity as the sole server administrator (see ADR-043). This resource depends on the Container Group purely to read its identity.principalId/tenantId at deploy time — the container itself does not wait for the SQL Server to exist before starting (its connection string is derived from parameters, not from a runtime reference), so it may restart a few times while the database finishes provisioning. This is expected; restartPolicy is 'Always'.",
       "dependsOn": [
         "[resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))]"
@@ -240,7 +259,7 @@
       "type": "Microsoft.Sql/servers/databases",
       "apiVersion": "2021-11-01",
       "name": "[concat(parameters('sqlServerName'), '/', parameters('sqlDatabaseName'))]",
-      "location": "[variables('location')]",
+      "location": "[parameters('sqlServerLocation')]",
       "dependsOn": [
         "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
       ],

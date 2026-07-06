@@ -93,6 +93,7 @@ You will see a form with the following fields:
 | **Auth Pepper** | Click the Key Vault icon → select your vault → select `cloudspector-auth-pepper` (the random 32+ char string *you* generated in Prerequisites step 4 — not provided by 7NodeIT) |
 | **Cloud Spector Api Base Url** | Leave as default |
 | **Sql Server Name** | A globally unique name, e.g. `csagent-sql-contoso001` |
+| **Sql Server Location** | Leave as `westeurope` unless deployment fails with `ProvisioningDisabled` (see Troubleshooting) — then pick another region from the dropdown |
 | **Sql Database Name** | Leave as `cloudspector-agent-db` unless you have a reason to change it |
 | **Sql Database Sku Name** | Leave as `Basic` unless you need more performance (S0/S1) |
 
@@ -153,12 +154,23 @@ az deployment group create \
 | `authPepper` | securestring | — | Password hashing secret you generate yourself (min 32 chars), stored in Key Vault — not provided by 7NodeIT |
 | `cloudSpectorApiBaseUrl` | string | Production URL | Backend API URL (do not change) |
 | `sqlServerName` | string | — | Globally unique Azure SQL logical server name (lowercase, numbers, hyphens) |
+| `sqlServerLocation` | string | `westeurope` | Region for the SQL Server + Database only (separate from the resource group's region — see Troubleshooting) |
 | `sqlDatabaseName` | string | `cloudspector-agent-db` | Azure SQL Database name |
 | `sqlDatabaseSkuName` | string | `Basic` | Azure SQL Database pricing tier (`Basic`, `S0`, or `S1`) |
 
 ---
 
 ## Troubleshooting
+
+### Deployment fails with "ProvisioningDisabled" (Azure SQL)
+
+```
+Subscriptions are restricted from provisioning in this region. Please choose a different region.
+```
+
+This is a subscription-level restriction on the `Microsoft.Sql` resource provider in that specific region — common on new, trial, or capacity-constrained subscriptions. It is unrelated to the resource group's region; Storage Account and Container Instance are unaffected.
+
+**Fix:** In the deployment parameters, change **Sql Server Location** to a different region (e.g. `northeurope` or `swedencentral` if `westeurope` is restricted) and redeploy. If every region in the list fails, open an Azure support request with issue type "Service and subscription limits" to request a quota increase.
 
 ### Container repeatedly restarts right after deployment
 
