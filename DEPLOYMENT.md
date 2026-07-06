@@ -186,6 +186,10 @@ Common causes:
 - **Managed identity missing:** Confirm the Container Group has a user-assigned identity attached (Container Instance → **Identity** tab → **User assigned** should list one identity, named `<containerGroupName>-identity`). If it's missing, the deployment likely failed partway through — redeploy.
 - **Wrong `Auth__Pepper`:** The env var name is case-sensitive — must be exactly `Auth__Pepper`.
 
+### `Client with IP address '...' is not allowed to access the server` (SQL error 40615)
+
+The firewall rule that grants the agent container access is scoped specifically to the Container Group's public IP (not a broad "allow all Azure" rule — see ADR-043's amendment). If you redeployed and the container was fully deleted and recreated (not just restarted), its public IP may have changed before the firewall rule caught up. Wait a minute for the rule to propagate and let the container retry (`restartPolicy: Always` handles this automatically); if it persists beyond a few minutes, redeploy the template so the firewall rule is recreated against the container's current IP.
+
 ### `Login failed for user '<token-identified principal>'` (SQL error 18456)
 
 If the container logs show this specific error, the managed identity exists but isn't being accepted as the SQL Server's Azure AD admin. This template only supports a **user-assigned** managed identity in that role — Azure SQL does not support a system-assigned identity as a server's Azure AD administrator at all (a platform limitation, see ADR-043's amendment). If you're on a template version older than this fix, redeploy from the current `azuredeploy.json` — no manual database permission steps are needed once the correct (user-assigned) identity is in place.
