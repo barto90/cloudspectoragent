@@ -14,7 +14,8 @@ One ARM template deploys these resources into your chosen resource group:
 |---|---|---|
 | Storage Account | Standard_LRS | Hosts the Azure Files share |
 | File Share (`cloudspector-data`) | Azure Files | Persistent storage for provider packages |
-| Container Group | Azure Container Instance | Runs the CloudSpector Agent on port 8080, with a system-assigned managed identity |
+| Container Group | Azure Container Instance | Runs the CloudSpector Agent on port 8080, with a user-assigned managed identity |
+| Managed Identity | Microsoft.ManagedIdentity | Grants the agent container access to its own SQL Database — no password anywhere |
 | SQL Server + Database | Microsoft.Sql (Basic tier) | Agent's local database (baselines, design decisions, users, feed items, check metadata) |
 
 Estimated monthly cost (West Europe): **€36–51/month**
@@ -22,7 +23,7 @@ Estimated monthly cost (West Europe): **€36–51/month**
 - Storage (Standard_LRS, 32 GB share): ~€1–2/month
 - Azure SQL Database (Basic tier): ~€5/month
 
-**No SQL password anywhere.** The SQL Server uses Azure AD-only authentication — the Container Group's system-assigned managed identity is set as the server's sole administrator during deployment. There is no SQL login, no password to store in Key Vault, and nothing to rotate. See ADR-043 in the CloudSpector repo for the reasoning.
+**No SQL password anywhere.** The SQL Server uses Azure AD-only authentication — a dedicated user-assigned managed identity (attached to the Container Group) is set as the server's sole administrator during deployment. There is no SQL login, no password to store in Key Vault, and nothing to rotate. See ADR-043 in the CloudSpector repo for the reasoning (including its amendment on why the identity must be user-assigned, not system-assigned).
 
 ---
 
@@ -182,8 +183,12 @@ Check the container logs in the Azure Portal: Container Instance → **Container
 
 Common causes:
 - **Database connection failing:** Verify the `sqlServerName` / `sqlDatabaseName` parameters match what was actually deployed. The agent connects via `ConnectionStrings__CloudSpector`, which is built automatically from those parameters — you should never need to set it manually.
-- **Managed identity not recognized as SQL admin:** Confirm the Container Group has a system-assigned identity (Container Instance → **Identity** tab → should show "On"). If it's missing, the deployment likely failed partway through — redeploy.
+- **Managed identity missing:** Confirm the Container Group has a user-assigned identity attached (Container Instance → **Identity** tab → **User assigned** should list one identity, named `<containerGroupName>-identity`). If it's missing, the deployment likely failed partway through — redeploy.
 - **Wrong `Auth__Pepper`:** The env var name is case-sensitive — must be exactly `Auth__Pepper`.
+
+### `Login failed for user '<token-identified principal>'` (SQL error 18456)
+
+If the container logs show this specific error, the managed identity exists but isn't being accepted as the SQL Server's Azure AD admin. This template only supports a **user-assigned** managed identity in that role — Azure SQL does not support a system-assigned identity as a server's Azure AD administrator at all (a platform limitation, see ADR-043's amendment). If you're on a template version older than this fix, redeploy from the current `azuredeploy.json` — no manual database permission steps are needed once the correct (user-assigned) identity is in place.
 
 ### Cannot connect to the SQL Database with SSMS / Azure Data Studio
 

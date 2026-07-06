@@ -4,21 +4,27 @@
   "parameters": {
     "containerGroupName": {
       "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
       "metadata": {
-        "description": "Name for the Azure Container Instance resource. Must be unique within the resource group."
+        "description": "Name for the Azure Container Instance resource (1-63 chars, lowercase letters/numbers/hyphens only, cannot start or end with a hyphen — Azure Container Instance naming rule)."
       }
     },
     "storageAccountName": {
       "type": "string",
+      "minLength": 3,
+      "maxLength": 24,
       "metadata": {
-        "description": "Globally unique storage account name (3–24 characters, lowercase letters and numbers only). Example: csagentcontoso001"
+        "description": "Globally unique storage account name (3-24 chars, lowercase letters and numbers ONLY, no hyphens — Azure Storage Account naming rule). Example: csagentcontoso001"
       }
     },
     "fileShareName": {
       "type": "string",
       "defaultValue": "cloudspector-data",
+      "minLength": 3,
+      "maxLength": 63,
       "metadata": {
-        "description": "Azure Files share name. The agent mounts this share at /data for persistent storage of provider packages (not the database — see sqlServerName)."
+        "description": "Azure Files share name (3-63 chars, lowercase letters/numbers/hyphens, cannot start/end with a hyphen or use consecutive hyphens — Azure Files naming rule). The agent mounts this share at /data for persistent storage of provider packages (not the database — see sqlServerName)."
       }
     },
     "agentImageName": {
@@ -30,8 +36,10 @@
     },
     "acrTokenUsername": {
       "type": "string",
+      "minLength": 1,
+      "maxLength": 50,
       "metadata": {
-        "description": "ACR repository-scoped token name provided by 7NodeIT. This is a token name, not a password — it is not secret."
+        "description": "ACR repository-scoped token name provided by 7NodeIT (max 50 chars — Azure Container Registry token naming rule). This is a token name, not a password — it is not secret."
       }
     },
     "acrTokenPassword": {
@@ -42,6 +50,7 @@
     },
     "authPepper": {
       "type": "securestring",
+      "minLength": 32,
       "metadata": {
         "description": "REQUIRED — type your own random string of at least 32 characters (letters/numbers/symbols), store it in Azure Key Vault, and reference it here. This is used by the agent to hash user passwords (PBKDF2-SHA512). It is not provided by 7NodeIT — you generate it yourself, once. IMPORTANT: if this value is ever lost, existing agent user passwords can no longer be verified and all accounts must be recreated."
       }
@@ -55,8 +64,10 @@
     },
     "sqlServerName": {
       "type": "string",
+      "minLength": 1,
+      "maxLength": 63,
       "metadata": {
-        "description": "Globally unique Azure SQL logical server name (lowercase letters, numbers, hyphens, 1-63 characters). Example: csagent-sql-contoso001"
+        "description": "Globally unique Azure SQL logical server name (1-63 chars, lowercase letters/numbers/hyphens, cannot start or end with a hyphen — Azure SQL server naming rule). Example: csagent-sql-contoso001"
       }
     },
     "sqlServerLocation": {
@@ -81,8 +92,10 @@
     "sqlDatabaseName": {
       "type": "string",
       "defaultValue": "cloudspector-agent-db",
+      "minLength": 1,
+      "maxLength": 128,
       "metadata": {
-        "description": "Name of the Azure SQL Database that stores the agent's local data (baselines, design decisions, users, feed items, check metadata)."
+        "description": "Name of the Azure SQL Database that stores the agent's local data (baselines, design decisions, users, feed items, check metadata). 1-128 chars — Azure SQL database naming rule."
       }
     },
     "sqlDatabaseSkuName": {
@@ -99,9 +112,17 @@
     }
   },
   "variables": {
-    "location": "[resourceGroup().location]"
+    "location": "[resourceGroup().location]",
+    "managedIdentityName": "[concat(parameters('containerGroupName'), '-identity')]"
   },
   "resources": [
+    {
+      "type": "Microsoft.ManagedIdentity/userAssignedIdentities",
+      "apiVersion": "2023-01-31",
+      "name": "[variables('managedIdentityName')]",
+      "location": "[variables('location')]",
+      "comments": "User-assigned, not system-assigned: only a user-assigned managed identity can be set as the Azure AD administrator of an Azure SQL Server. System-assigned identities are not supported for that role (see ADR-043 amendment)."
+    },
     {
       "type": "Microsoft.Storage/storageAccounts",
       "apiVersion": "2023-01-01",
@@ -134,9 +155,13 @@
       "name": "[parameters('containerGroupName')]",
       "location": "[variables('location')]",
       "identity": {
-        "type": "SystemAssigned"
+        "type": "UserAssigned",
+        "userAssignedIdentities": {
+          "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]": {}
+        }
       },
       "dependsOn": [
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]",
         "[resourceId('Microsoft.Storage/storageAccounts/fileServices/shares', parameters('storageAccountName'), 'default', parameters('fileShareName'))]"
       ],
       "properties": {
@@ -180,7 +205,7 @@
                 },
                 {
                   "name": "ConnectionStrings__CloudSpector",
-                  "value": "[concat('Server=tcp:', parameters('sqlServerName'), '.database.windows.net,1433;Initial Catalog=', parameters('sqlDatabaseName'), ';Authentication=Active Directory Managed Identity;Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;')]"
+                  "value": "[concat('Server=tcp:', parameters('sqlServerName'), '.database.windows.net,1433;Initial Catalog=', parameters('sqlDatabaseName'), ';Authentication=Active Directory Managed Identity;User Id=', reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').clientId, ';Encrypt=True;TrustServerCertificate=False;Connection Timeout=30;')]"
                 }
               ],
               "volumeMounts": [
@@ -227,18 +252,18 @@
       "apiVersion": "2022-05-01-preview",
       "name": "[parameters('sqlServerName')]",
       "location": "[parameters('sqlServerLocation')]",
-      "comments": "No SQL login/password is created. Azure AD-only authentication with the Container Group's system-assigned managed identity as the sole server administrator (see ADR-043). This resource depends on the Container Group purely to read its identity.principalId/tenantId at deploy time — the container itself does not wait for the SQL Server to exist before starting (its connection string is derived from parameters, not from a runtime reference), so it may restart a few times while the database finishes provisioning. This is expected; restartPolicy is 'Always'.",
+      "comments": "No SQL login/password is created. Azure AD-only authentication with a user-assigned managed identity as the sole server administrator (see ADR-043 and its amendment — system-assigned identities are not supported in this role). This resource depends only on the user-assigned identity, not on the Container Group, so it no longer needs to wait for the container to be created.",
       "dependsOn": [
-        "[resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))]"
+        "[resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName'))]"
       ],
       "properties": {
         "version": "12.0",
         "administrators": {
           "administratorType": "ActiveDirectory",
           "principalType": "Application",
-          "login": "[parameters('containerGroupName')]",
-          "sid": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName')), '2023-05-01', 'Full').identity.principalId]",
-          "tenantId": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName')), '2023-05-01', 'Full').identity.tenantId]",
+          "login": "[variables('managedIdentityName')]",
+          "sid": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').principalId]",
+          "tenantId": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').tenantId]",
           "azureADOnlyAuthentication": true
         }
       }
@@ -287,6 +312,10 @@
     "sqlDatabaseName": {
       "type": "string",
       "value": "[parameters('sqlDatabaseName')]"
+    },
+    "managedIdentityClientId": {
+      "type": "string",
+      "value": "[reference(resourceId('Microsoft.ManagedIdentity/userAssignedIdentities', variables('managedIdentityName')), '2023-01-31').clientId]"
     }
   }
 }
