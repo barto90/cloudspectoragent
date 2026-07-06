@@ -2,6 +2,8 @@
 
 Deploy the CloudSpector Agent to your own Azure subscription using Azure Container Instances with persistent Azure Files storage and a dedicated Azure SQL Database.
 
+This is the **Container Instance** deployment flavor — one of several planned (App Service and Container App are coming later; see ADR-044). It is the simplest to deploy but exposes the agent over **plain HTTP with no TLS**, on a public IP. Use it for evaluation and testing; prefer a TLS-terminating flavor once available for anything handling real customer data.
+
 > **Prerequisite:** You must receive an ACR token (username + password) from 7NodeIT before you can deploy. Contact support@7nodeit.com to request one.
 
 ---
