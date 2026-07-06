@@ -273,7 +273,7 @@
       "type": "Microsoft.Sql/servers/firewallRules",
       "apiVersion": "2021-11-01",
       "name": "[concat(parameters('sqlServerName'), '/AllowAgentContainer')]",
-      "comments": "Scoped to the Container Group's own public IP rather than the broad 'Allow Azure services' (0.0.0.0-0.0.0.0) rule, which Microsoft documents as allowing connections from ANY Azure customer's resources, not just this deployment's — and which in practice does not reliably cover Azure Container Instances' public IPs anyway (see ADR-043 amendment).",
+      "comments": "Scoped to the Container Group's own public IP — the precise, least-privilege rule. A broader 'AllowAzureServices' fallback rule (below) also exists for robustness (see ADR-043 amendment); this one remains the primary, tighter rule.",
       "dependsOn": [
         "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]",
         "[resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))]"
@@ -281,6 +281,19 @@
       "properties": {
         "startIpAddress": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))).ipAddress.ip]",
         "endIpAddress": "[reference(resourceId('Microsoft.ContainerInstance/containerGroups', parameters('containerGroupName'))).ipAddress.ip]"
+      }
+    },
+    {
+      "type": "Microsoft.Sql/servers/firewallRules",
+      "apiVersion": "2021-11-01",
+      "name": "[concat(parameters('sqlServerName'), '/AllowAzureServices')]",
+      "comments": "Broad fallback rule ('Allow Azure services and resources to access this server' in the Portal UI). Deliberately reintroduced alongside the container-scoped rule above for reliability, at the cost of allowing connections from any Azure customer's resources, not just this deployment's (Microsoft's own documented trade-off for this option) — see ADR-043 amendment.",
+      "dependsOn": [
+        "[resourceId('Microsoft.Sql/servers', parameters('sqlServerName'))]"
+      ],
+      "properties": {
+        "startIpAddress": "0.0.0.0",
+        "endIpAddress": "0.0.0.0"
       }
     },
     {
