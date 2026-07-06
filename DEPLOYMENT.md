@@ -83,15 +83,14 @@ You will see a form with the following fields:
 | Field | What to enter |
 |---|---|
 | **Subscription** | Your Azure subscription |
-| **Resource group** | Select existing or create new |
-| **Region** | Your preferred Azure region (e.g. West Europe) |
+| **Resource group** | Select existing or create new — all resources deploy into this group's region, there is no separate region field |
 | **Container Group Name** | A name for the container, e.g. `cloudspector-agent` |
 | **Storage Account Name** | A globally unique name, 3–24 lowercase letters/numbers, e.g. `csagentcontoso001` |
 | **File Share Name** | Leave as `cloudspector-data` unless you have a reason to change it |
 | **Agent Image Name** | Leave as default (`7nodeit.azurecr.io/cloudspector.agent:latest`) |
 | **Acr Token Username** | The ACR token name provided by 7NodeIT (not the password) |
 | **Acr Token Password** | Click the Key Vault icon → select your vault → select `cloudspector-acr-token-password` |
-| **Auth Pepper** | Click the Key Vault icon → select your vault → select `cloudspector-auth-pepper` |
+| **Auth Pepper** | Click the Key Vault icon → select your vault → select `cloudspector-auth-pepper` (the random 32+ char string *you* generated in Prerequisites step 4 — not provided by 7NodeIT) |
 | **Cloud Spector Api Base Url** | Leave as default |
 | **Sql Server Name** | A globally unique name, e.g. `csagent-sql-contoso001` |
 | **Sql Database Name** | Leave as `cloudspector-agent-db` unless you have a reason to change it |
@@ -146,13 +145,12 @@ az deployment group create \
 | Parameter | Type | Default | Description |
 |---|---|---|---|
 | `containerGroupName` | string | — | Name for the ACI resource |
-| `location` | string | Resource group location | Azure region |
 | `storageAccountName` | string | — | Globally unique storage account name (3–24 chars, lowercase alphanumeric) |
 | `fileShareName` | string | `cloudspector-data` | Azure Files share name |
 | `agentImageName` | string | `7nodeit.azurecr.io/cloudspector.agent:latest` | Container image (do not change unless told to) |
 | `acrTokenUsername` | string | — | ACR token name from 7NodeIT |
 | `acrTokenPassword` | securestring | — | ACR token password (from Key Vault) |
-| `authPepper` | securestring | — | Password hashing secret (from Key Vault, min 32 chars) |
+| `authPepper` | securestring | — | Password hashing secret you generate yourself (min 32 chars), stored in Key Vault — not provided by 7NodeIT |
 | `cloudSpectorApiBaseUrl` | string | Production URL | Backend API URL (do not change) |
 | `sqlServerName` | string | — | Globally unique Azure SQL logical server name (lowercase, numbers, hyphens) |
 | `sqlDatabaseName` | string | `cloudspector-agent-db` | Azure SQL Database name |

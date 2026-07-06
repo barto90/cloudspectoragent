@@ -5,9 +5,6 @@
     "containerGroupName": {
       "value": "cloudspector-agent"
     },
-    "location": {
-      "value": "westeurope"
-    },
     "storageAccountName": {
       "value": "csagent<unique-suffix>"
     },
